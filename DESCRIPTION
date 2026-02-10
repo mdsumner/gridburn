@@ -1,0 +1,34 @@
+Package: gridburn
+Title: Sparse Polygon Rasterization with Exact Coverage Fractions
+Version: 0.0.0.9000
+Authors@R: c(
+    person("Michael", "Sumner", email = "mdsumner@gmail.com",
+           role = c("aut", "cre")),
+    person("Daniel", "Baston", role = "cph",
+           comment = "exactextract C++ algorithm (vendored)"),
+    person("ISciences, LLC", role = "cph",
+           comment = "exactextract C++ algorithm (vendored)"))
+Description: Computes exact coverage fractions for polygon-grid intersections
+    and returns results in a sparse two-table format: run-length encoded
+    interior cells and individually weighted boundary cells. Uses the
+    exactextract algorithm by Daniel Baston, vendored from the
+    'exactextractr' package.
+License: Apache License (>= 2)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+SystemRequirements: C++14
+LinkingTo:
+    cpp11,
+    libgeos
+Imports:
+    cpp11,
+    libgeos
+Suggests:
+    geos,
+    sf,
+    vaster,
+    testthat (>= 3.0.0)
+URL: https://github.com/hypertidy/gridburn
+BugReports: https://github.com/hypertidy/gridburn/issues
+Config/testthat/edition: 3
