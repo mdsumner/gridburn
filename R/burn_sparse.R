@@ -10,6 +10,9 @@
 #'   - a list of raw vectors containing WKB
 #' @param extent numeric vector `c(xmin, xmax, ymin, ymax)` defining the raster extent
 #' @param dimension integer vector `c(ncol, nrow)` defining the grid dimensions
+#' @param tile_size integer, maximum tile dimension (default 4096). The grid is
+#'   processed in tiles of at most `tile_size x tile_size` cells to bound memory
+#'   usage. Set to `Inf` to disable tiling.
 #'
 #' @return A list with class `"gridburn"` containing:
 #'   \describe{
@@ -33,10 +36,11 @@
 #'   result$runs
 #'   result$edges
 #' }
-burn_sparse <- function(x, extent, dimension) {
+burn_sparse <- function(x, extent, dimension, tile_size = 4096L) {
   wkb <- as_wkb_list(x)
   extent <- as.double(extent)
   dimension <- as.integer(dimension)
+  tile_size <- as.integer(tile_size)
 
   stopifnot(
     length(extent) == 4,
@@ -47,14 +51,95 @@ burn_sparse <- function(x, extent, dimension) {
     extent[4] > extent[3]   # ymax > ymin
   )
 
-  result <- cpp_burn_sparse(
-    wkb,
-    extent[1], extent[3], extent[2], extent[4],  # xmin, ymin, xmax, ymax to C++
-    dimension[1], dimension[2]
-  )
+  ncol_full <- dimension[1]
+  nrow_full <- dimension[2]
 
-  result$extent <- extent
-  result$dimension <- dimension
+  # If grid fits in a single tile, no tiling needed
+  if (ncol_full <= tile_size && nrow_full <= tile_size) {
+    result <- cpp_burn_sparse(
+      wkb,
+      extent[1], extent[3], extent[2], extent[4],
+      ncol_full, nrow_full
+    )
+    result$extent <- extent
+    result$dimension <- dimension
+    class(result) <- "gridburn"
+    return(result)
+  }
+
+  # Tiled processing
+  xmin <- extent[1]; xmax <- extent[2]
+  ymin <- extent[3]; ymax <- extent[4]
+  dx <- (xmax - xmin) / ncol_full
+  dy <- (ymax - ymin) / nrow_full
+
+  # Tile breaks (column and row indices, 0-based)
+  col_breaks <- seq(0L, ncol_full, by = tile_size)
+  if (col_breaks[length(col_breaks)] != ncol_full)
+    col_breaks <- c(col_breaks, ncol_full)
+  row_breaks <- seq(0L, nrow_full, by = tile_size)
+  if (row_breaks[length(row_breaks)] != nrow_full)
+    row_breaks <- c(row_breaks, nrow_full)
+
+  n_tile_cols <- length(col_breaks) - 1L
+  n_tile_rows <- length(row_breaks) - 1L
+
+  all_runs <- vector("list", n_tile_cols * n_tile_rows)
+  all_edges <- vector("list", n_tile_cols * n_tile_rows)
+  k <- 0L
+
+  for (ti in seq_len(n_tile_rows)) {
+    r0 <- row_breaks[ti]       # 0-based row start
+    r1 <- row_breaks[ti + 1L]  # 0-based row end (exclusive)
+    tile_nrow <- r1 - r0
+
+    # Tile y extent: row 0 is at ymax
+    tile_ymax <- ymax - r0 * dy
+    tile_ymin <- ymax - r1 * dy
+
+    for (tj in seq_len(n_tile_cols)) {
+      c0 <- col_breaks[tj]
+      c1 <- col_breaks[tj + 1L]
+      tile_ncol <- c1 - c0
+
+      tile_xmin <- xmin + c0 * dx
+      tile_xmax <- xmin + c1 * dx
+
+      tile_result <- cpp_burn_sparse(
+        wkb,
+        tile_xmin, tile_ymin, tile_xmax, tile_ymax,
+        tile_ncol, tile_nrow
+      )
+
+      k <- k + 1L
+
+      # Offset tile-local coords to full grid coords
+      runs <- tile_result$runs
+      if (nrow(runs) > 0) {
+        runs$row <- runs$row + r0
+        runs$col_start <- runs$col_start + c0
+        runs$col_end <- runs$col_end + c0
+      }
+      all_runs[[k]] <- runs
+
+      edges <- tile_result$edges
+      if (nrow(edges) > 0) {
+        edges$row <- edges$row + r0
+        edges$col <- edges$col + c0
+      }
+      all_edges[[k]] <- edges
+    }
+  }
+
+  result <- list(
+    runs = do.call(rbind, all_runs),
+    edges = do.call(rbind, all_edges),
+    extent = extent,
+    dimension = dimension
+  )
+  # Clean up row names from rbind
+  if (!is.null(result$runs)) rownames(result$runs) <- NULL
+  if (!is.null(result$edges)) rownames(result$edges) <- NULL
   class(result) <- "gridburn"
   result
 }

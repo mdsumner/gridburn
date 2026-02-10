@@ -4,7 +4,7 @@
 \alias{burn_sparse}
 \title{Sparse polygon rasterization with exact coverage fractions}
 \usage{
-burn_sparse(x, extent, dimension)
+burn_sparse(x, extent, dimension, tile_size = 4096L)
 }
 \arguments{
 \item{x}{geometry input, one of:
@@ -14,9 +14,13 @@ burn_sparse(x, extent, dimension)
 \item a list of raw vectors containing WKB
 }}
 
-\item{extent}{numeric vector \code{c(xmin, ymin, xmax, ymax)} defining the raster extent}
+\item{extent}{numeric vector \code{c(xmin, xmax, ymin, ymax)} defining the raster extent}
 
 \item{dimension}{integer vector \code{c(ncol, nrow)} defining the grid dimensions}
+
+\item{tile_size}{integer, maximum tile dimension (default 4096). The grid is
+processed in tiles of at most \verb{tile_size x tile_size} cells to bound memory
+usage. Set to \code{Inf} to disable tiling.}
 }
 \value{
 A list with class \code{"gridburn"} containing:
@@ -41,7 +45,7 @@ individually weighted boundary cells.
 if (requireNamespace("geos", quietly = TRUE)) {
   library(geos)
   poly <- as_geos_geometry("POLYGON ((0.5 0.5, 2.5 0.5, 2.5 2.5, 0.5 2.5, 0.5 0.5))")
-  result <- burn_sparse(poly, extent = c(0, 0, 3, 3), dimension = c(3, 3))
+  result <- burn_sparse(poly, extent = c(0, 3, 0, 3), dimension = c(3, 3))
   result$runs
   result$edges
 }

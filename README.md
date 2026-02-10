@@ -71,6 +71,72 @@ GEOS access (no system GEOS dependency, no configure script). The
 exactextract algorithm handles all geometry types (polygons,
 multipolygons, lines) and correctly accounts for holes.
 
+
+
+## Tiling
+
+The exactextract algorithm computes a dense coverage matrix for each
+polygon's bounding box, then gridburn compresses this to sparse output.
+For large grids with polygons that span many cells, this intermediate
+dense matrix can exceed available memory.
+
+`burn_sparse()` handles this automatically by splitting the grid into
+tiles of at most `tile_size × tile_size` cells (default 4096, capping
+the dense intermediate at ~64 MB per tile). Tiling is transparent — the
+output is identical to the non-tiled case, with row/column indices in
+the full grid coordinate system.
+
+```r
+dsn <- "/vsizip//vsicurl/https://resources.gisdata.mn.gov/pub/gdrs/data/pub/us_mn_state_dnr/water_lake_superior_basin/shp_water_lake_superior_basin.zip"
+ls_wkb <- wk::wkb(vapour::vapour_read_geometry(dsn))
+lake <- ls_wkb[which.max(geos::geos_area(ls_wkb))]
+ex <- as.numeric(wk::wk_bbox(ls_wkb))[c(1, 3, 2, 4)]
+
+# 25,600 × 12,800 grid — fits in a few tiles
+system.time(result <- burn_sparse(geos::as_geos_geometry(lake), ex, c(25600, 12800)))
+#>    user  system elapsed
+#>   5.737   3.190   8.924
+
+str(result)
+# List of 4
+#  $ runs     :'data.frame':	112711 obs. of  4 variables:
+#   ..$ row      : int [1:112711] 71 72 73 74 75 76 77 78 79 80 ...
+#   ..$ col_start: int [1:112711] 11975 11973 11972 11971 11969 11969 11968 11968 11968 11968 ...
+#   ..$ col_end  : int [1:112711] 11976 11978 11980 11982 11983 11984 11985 11985 11986 11986 ...
+#   ..$ id       : int [1:112711] 1 1 1 1 1 1 1 1 1 1 ...
+#  $ edges    :'data.frame':	314833 obs. of  4 variables:
+#   ..$ row   : int [1:314833] 69 69 70 70 70 70 71 71 71 71 ...
+#   ..$ col   : int [1:314833] 11975 11976 11974 11975 11976 11977 11972 11973 11974 11977 ...
+#   ..$ weight: num [1:314833] 0.06066 0.00736 0.2445 0.90007 0.80403 ...
+#   ..$ id    : int [1:314833] 1 1 1 1 1 1 1 1 1 1 ...
+#  $ extent   : num [1:4] 565502 1165764 5155179 5441497
+#  $ dimension: int [1:2] 25600 12800
+#  - attr(*, "class")= chr "gridburn"
+#  
+```
+
+(We're not entirely sparse  because each now tile is inherently materialized unnecessarily upfront, 
+but that's a different design challenge for the longer term - GEOS and exactextract geared towards calculating results,
+not returning intermediate strutures like these). 
+
+Each tile is completely independent, no shared state, embarrassingly parallel. Two levels of optimization stack nicely: 
+clip geometries to tile extent first (so each worker gets only the relevant subset), then parallelize across tiles. The sparse output tables just rbind at the end.
+The geometry clipping is the bigger win for datasets like nc.shp where most polygons only touch a few tiles. A spatial index prefilter in R \
+(geos::geos_intersects against tile rectangles) would cut that dramatically. 
+
+
+```r
+# 256,000 × 128,000 grid (~32 billion cells) — tiled automatically
+system.time(result <- burn_sparse(geos::as_geos_geometry(lake), ex, c(256000, 128000)))
+#> ...
+```
+
+Set `tile_size = Inf` to disable tiling (not recommended for large
+grids). Tiles that don't overlap any geometry produce no output, so
+the overhead of tiling is minimal.
+
+
+
 ## License
 
 Apache License 2.0. The vendored exactextract code is Copyright
