@@ -211,14 +211,14 @@ print.gridburn <- function(x, ...) {
   n_ids <- length(unique(c(x$runs$id, x$edges$id)))
 
   # Compute total cells represented
-  total_interior <- if (n_runs > 0) sum(x$runs$col_end - x$runs$col_start + 1L) else 0L
+  total_interior <- if (n_runs > 0) sum(as.numeric(x$runs$col_end - x$runs$col_start + 1L)) else 0
   total_cells <- total_interior + n_edges
   grid_cells <- as.numeric(ncol) * as.numeric(nrow)
   sparsity <- 1 - total_cells / grid_cells
 
   cat(sprintf("<gridburn> %d x %d grid, %d geometr%s\n",
               ncol, nrow, n_ids, if (n_ids == 1) "y" else "ies"))
-  cat(sprintf("  runs:  %d (%d interior cells)\n", n_runs, total_interior))
+  cat(sprintf("  runs:  %d (%.0f interior cells)\n", n_runs, total_interior))
   cat(sprintf("  edges: %d boundary cells\n", n_edges))
   cat(sprintf("  sparsity: %.1f%% empty\n", sparsity * 100))
   invisible(x)
